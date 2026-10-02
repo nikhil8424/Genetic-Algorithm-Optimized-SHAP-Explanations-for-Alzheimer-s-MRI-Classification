@@ -6,6 +6,7 @@ import tensorflow as tf
 
 import config
 from genetic_algorithm import chromosome_to_mask, calculate_fitness, calculate_objectives
+from xai_metrics import create_random_k_mask, evaluate_all_methods
 
 
 def create_shap_top_k_mask(
@@ -24,51 +25,42 @@ def create_shap_top_k_mask(
     return top_k_chromosome, top_k_mask
 
 
-def compare_ga_vs_shap(
+def compare_all_methods(
     model: tf.keras.Model,
     image: np.ndarray,
     original_prob: float,
     ga_chromosome: List[int],
     region_shap_scores: np.ndarray,
     image_idx: int = 0,
+    random_seed: int = config.RANDOM_SEED,
     save_path: str = "results/comparison.csv",
 ) -> Tuple[pd.DataFrame, Dict[str, Dict[str, float]]]:
-    """Performs comparison between GA-Optimized mask and SHAP Top-K for 2D baseline."""
+    """Performs comparison between Random-K, SHAP Top-K, and GA-NSGA-II for 2D baseline."""
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
-    k_selected = sum(ga_chromosome)
-    
-    ga_fitness, ga_details = calculate_fitness(
-        ga_chromosome, model=model, image=image, original_prob=original_prob, region_shap_scores=region_shap_scores
+
+    # Use the comprehensive evaluation from xai_metrics
+    results = evaluate_all_methods(
+        model=model,
+        image=image,
+        original_prob=original_prob,
+        region_shap_scores=region_shap_scores,
+        ga_chromosome=ga_chromosome,
+        random_seed=random_seed,
     )
 
-    shap_chromosome, _ = create_shap_top_k_mask(region_shap_scores, k=k_selected)
-    shap_fitness, shap_details = calculate_fitness(
-        shap_chromosome, model=model, image=image, original_prob=original_prob, region_shap_scores=region_shap_scores
-    )
-
-    records = [
-        {
-            "Method": "SHAP Top-K Baseline",
-            "Selected_Regions": k_selected,
+    records = []
+    for method_name, metrics in results.items():
+        records.append({
+            "Method": method_name,
+            "Selected_Regions": metrics["k_selected"],
             "Original_Probability": original_prob,
-            "Masked_Probability": shap_details["masked_prob"],
-            "Prediction_Preservation": shap_details["prediction_preservation"],
-            "SHAP_Importance": shap_details["shap_importance"],
-            "Sparsity": shap_details["sparsity_penalty"],
-            "Fitness_Score": shap_fitness,
-        },
-        {
-            "Method": "GA-Optimized Mask",
-            "Selected_Regions": k_selected,
-            "Original_Probability": original_prob,
-            "Masked_Probability": ga_details["masked_prob"],
-            "Prediction_Preservation": ga_details["prediction_preservation"],
-            "SHAP_Importance": ga_details["shap_importance"],
-            "Sparsity": ga_details["sparsity_penalty"],
-            "Fitness_Score": ga_fitness,
-        },
-    ]
+            "Prediction_Preservation": metrics["prediction_preservation"],
+            "SHAP_Retention": metrics["shap_retention"],
+            "Compactness": metrics["compactness"],
+            "Deletion_AUC": metrics["deletion_auc"],
+            "Insertion_AUC": metrics["insertion_auc"],
+        })
 
     comp_df = pd.DataFrame(records)
     comp_df.to_csv(save_path, index=False)
-    return comp_df, {"SHAP_TopK": shap_details, "GA_Optimized": ga_details}
+    return comp_df, results

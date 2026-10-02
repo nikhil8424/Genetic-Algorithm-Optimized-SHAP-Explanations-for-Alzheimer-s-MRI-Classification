@@ -104,7 +104,7 @@ def split_dataset(
     val_size: float = config.VALIDATION_SIZE,
     random_state: int = config.RANDOM_SEED,
 ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """Performs stratified 70% Training / 15% Validation / 15% Test split."""
+    """Performs stratified 68% Training / 16% Validation / 16% Test split."""
     train_val_df, test_df = train_test_split(
         df,
         test_size=test_size,
@@ -133,6 +133,45 @@ def split_dataset(
     print()
 
     return train_df, val_df, test_df
+
+
+def select_stratified_evaluation_samples(
+    test_df: pd.DataFrame,
+    n_samples: int = 100,
+    random_state: int = config.RANDOM_SEED,
+) -> pd.DataFrame:
+    """
+    Selects a stratified subset of test samples for XAI evaluation.
+    Attempts to balance Normal and Demented classes (50/50 for n=100).
+    """
+    n_per_class = n_samples // 2
+
+    normal_df = test_df[test_df["binary_label"] == 0]
+    demented_df = test_df[test_df["binary_label"] == 1]
+
+    available_normal = len(normal_df)
+    available_demented = len(demented_df)
+
+    # Adjust if insufficient samples
+    actual_normal = min(n_per_class, available_normal)
+    actual_demented = min(n_per_class, available_demented)
+
+    np.random.seed(random_state)
+
+    selected_normal = normal_df.sample(n=actual_normal, random_state=random_state) if actual_normal > 0 else pd.DataFrame()
+    selected_demented = demented_df.sample(n=actual_demented, random_state=random_state) if actual_demented > 0 else pd.DataFrame()
+
+    eval_df = pd.concat([selected_normal, selected_demented], ignore_index=True)
+    eval_df = eval_df.sample(frac=1, random_state=random_state).reset_index(drop=True)
+
+    print(f"Evaluation Sample Selection (Stratified):")
+    print(f"  Target samples per class: {n_per_class}")
+    print(f"  Normal selected         : {actual_normal}")
+    print(f"  Demented selected       : {actual_demented}")
+    print(f"  Total evaluation samples : {len(eval_df)}")
+    print()
+
+    return eval_df
 
 
 def generate_synthetic_mri_dataset(

@@ -6,6 +6,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import tensorflow as tf
 from deap import base, creator, tools
+import pandas as pd
 
 import config
 
@@ -154,6 +155,9 @@ def run_genetic_algorithm(
     random.seed(random_seed)
     np.random.seed(random_seed)
 
+    # Cache for chromosome evaluations to avoid redundant predictions
+    evaluation_cache = {}
+
     fitness_cls_name = "FitnessMultiNSGA2_2D"
     individual_cls_name = "IndividualNSGA2_2D"
 
@@ -170,9 +174,15 @@ def run_genetic_algorithm(
     toolbox.register("population", tools.initRepeat, list, toolbox.individual)
 
     def evaluate(ind):
+        # Convert chromosome to tuple for hashing
+        chrom_tuple = tuple(ind)
+        if chrom_tuple in evaluation_cache:
+            return evaluation_cache[chrom_tuple]
+
         objectives, _ = calculate_objectives(
             ind, model=model, image=image, original_prob=original_prob, region_shap_scores=region_shap_scores
         )
+        evaluation_cache[chrom_tuple] = objectives
         return objectives
 
     toolbox.register("evaluate", evaluate)
@@ -297,3 +307,29 @@ def plot_pareto_front(
     plt.tight_layout()
     plt.savefig(save_path, dpi=300)
     plt.close()
+
+
+def save_pareto_front_csv(
+    pareto_front: List,
+    sample_idx: int = 1,
+    save_path: str = "results/pareto_front.csv",
+) -> None:
+    """Saves Pareto front to CSV with only F1, F2, F3."""
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    if not pareto_front:
+        return
+
+    records = []
+    for i, ind in enumerate(pareto_front):
+        f1, f2, f3 = ind.fitness.values
+        k_selected = sum(ind)
+        records.append({
+            "Solution_ID": i,
+            "K_Selected": k_selected,
+            "F1_Preservation": f1,
+            "F2_SHAP_Retained": f2,
+            "F3_Compactness": f3,
+        })
+
+    df = pd.DataFrame(records)
+    df.to_csv(save_path, index=False)

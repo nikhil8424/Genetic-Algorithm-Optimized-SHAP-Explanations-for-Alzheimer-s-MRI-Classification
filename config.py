@@ -9,6 +9,7 @@ DATASET_DIR = "data/OriginalDataset"
 RESULTS_DIR = "results"
 SHAP_RESULTS_DIR = "results/shap"
 FINAL_RESULTS_DIR = "results/final"
+COMPARISONS_DIR = "results/comparisons"
 MODELS_DIR = "models"
 MODEL_SAVE_PATH = "models/baseline_2d_model.keras"
 
@@ -36,12 +37,13 @@ NUM_REGIONS = GRID_ROWS * GRID_COLS
 REGION_PIXEL_SIZE = IMG_SIZE // GRID_ROWS
 
 # Multi-Objective NSGA-II Genetic Algorithm Hyperparameters
-GA_POPULATION_SIZE = 40
-GA_GENERATIONS = 15
+GA_POPULATION_SIZE = 20
+GA_GENERATIONS = 10
 GA_CROSSOVER_PROB = 0.7
 GA_MUTATION_PROB = 0.2
 GA_BIT_FLIP_PROB = 0.08
-GA_DEMO_IMAGES = 3
+GA_EVAL_SAMPLES = 20
+GA_SEEDS = [42]
 
 # Composite Scalar Weights for Comparative Reporting
 FITNESS_ALPHA = 1.0 / 3.0  # Weight for prediction preservation (f1)

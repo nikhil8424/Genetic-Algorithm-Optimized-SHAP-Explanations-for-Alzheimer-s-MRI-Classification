@@ -1,0 +1,15 @@
+Metric,Value
+Dataset_Total_Size,6400
+Train_Size,4352
+Validation_Size,1024
+Test_Size,1024
+Evaluation_Samples,20
+GA_Seeds,[42]
+Accuracy,0.6758
+Precision,0.6200
+Recall,0.9082
+F1_Score,0.7369
+ROC_AUC,0.7137
+Specificity,0.4434
+SHAP_Runtime_s,15.88
+Total_XAI_Runtime_s,481.57

@@ -24,7 +24,7 @@ def create_shap_explainer(
         except Exception as e_deep:
             print(f"[SHAP Notice] DeepExplainer fallback: {str(e_deep)}")
             
-            class IntegratedGradientWrapper:
+            class GradientAttributionFallback:
                 def __init__(self, target_model, bg):
                     self.model = target_model
                     self.bg = bg
@@ -43,7 +43,7 @@ def create_shap_explainer(
                         val_list.append(saliency[0])
                     return [np.array(val_list)]
 
-            return IntegratedGradientWrapper(model, background_data)
+            return GradientAttributionFallback(model, background_data)
 
 
 def compute_shap_values(
