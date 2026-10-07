@@ -13,6 +13,22 @@ from genetic_algorithm import run_genetic_algorithm, calculate_objectives
 
 
 def run_quick_verification():
+    """
+    Runs a quick verification test to ensure all pipeline components work correctly.
+
+    This function performs 6 verification checks:
+    1. Python and TensorFlow versions
+    2. Dataset loading and indexing
+    3. Pretrained model loading
+    4. Single image preprocessing and model prediction
+    5. SHAP explainer initialization and computation
+    6. Mini genetic algorithm run (2 generations)
+
+    This is useful for testing the environment before running the full pipeline.
+
+    Returns:
+        True if all checks pass, False otherwise
+    """
     print("=" * 60)
     print("      2D GA-SHAP STANDALONE QUICK VERIFICATION TEST")
     print("=" * 60)

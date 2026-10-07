@@ -13,13 +13,29 @@ def plot_training_history(
     history: History,
     save_path: str = "results/training_curves.png",
 ) -> None:
-    """Plots and saves training and validation Loss and Accuracy trajectories."""
+    """
+    Plots and saves training and validation Loss and Accuracy trajectories.
+
+    This function creates a two-panel visualization of the training process:
+    1. Left panel: Training and validation loss over epochs
+       - Loss should decrease over time if training is successful
+       - If validation loss increases while training loss decreases, it indicates overfitting
+    2. Right panel: Training and validation accuracy over epochs
+       - Accuracy should increase over time if training is successful
+       - Gap between train and val accuracy indicates overfitting
+
+    Args:
+        history: Keras History object from model.fit()
+        save_path: Path to save the plot
+    """
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
     hist = history.history
     epochs_range = range(1, len(hist["loss"]) + 1)
 
+    # Create two-panel figure
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(13, 4.5))
 
+    # Panel 1: Loss curves
     ax1.plot(epochs_range, hist["loss"], color="#d62728", lw=2, label="Train Loss")
     if "val_loss" in hist:
         ax1.plot(epochs_range, hist["val_loss"], color="#ff7f0e", lw=2, linestyle="--", label="Val Loss")
@@ -29,6 +45,7 @@ def plot_training_history(
     ax1.grid(True, linestyle=":", alpha=0.6)
     ax1.legend(frameon=True)
 
+    # Panel 2: Accuracy curves
     acc_key = "accuracy" if "accuracy" in hist else "binary_accuracy"
     val_acc_key = f"val_{acc_key}"
 
@@ -56,39 +73,68 @@ def plot_final_comparison(
     sample_info: Dict,
     save_path: str,
 ) -> None:
-    """Generates 2D 5-panel visual comparison."""
+    """
+    Generates 2D 5-panel visual comparison.
+
+    This function creates a comprehensive 5-panel comparison showing:
+    1. Original MRI: The input brain scan
+    2. SHAP Importance: Heatmap showing which pixels are important
+    3. SHAP Top-K Mask: Regions selected by the greedy SHAP method
+    4. GA Optimized Mask: Regions selected by the genetic algorithm
+    5. GA Masked MRI: Original image with only GA-selected regions visible
+
+    This visualization helps compare the two explanation methods and shows
+    how the GA selects different regions than the simple SHAP Top-K approach.
+
+    Args:
+        original_img: Original MRI image (128, 128, 1)
+        abs_shap_map: Absolute SHAP values (128, 128)
+        shap_topk_mask: SHAP Top-K selection mask (128, 128, 1)
+        ga_mask: GA-optimized selection mask (128, 128, 1)
+        ga_masked_img: Original image with GA mask applied (128, 128, 1)
+        sample_info: Dictionary with sample metadata (true_class, pred_class, pred_prob, index)
+        save_path: Path to save the visualization
+    """
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
+    # Remove channel dimensions for visualization
     img_2d = np.squeeze(original_img)
     shap_2d = np.squeeze(abs_shap_map)
     shap_topk_2d = np.squeeze(shap_topk_mask)
     ga_mask_2d = np.squeeze(ga_mask)
     ga_masked_2d = np.squeeze(ga_masked_img)
 
+    # Create 5-panel figure
     fig, axes = plt.subplots(1, 5, figsize=(22, 4.8))
 
+    # Panel 1: Original MRI
     axes[0].imshow(img_2d, cmap="gray")
     axes[0].set_title(f"1. Original MRI\nTrue: {sample_info.get('true_class', 'N/A')}", fontsize=10, fontweight="bold")
     axes[0].axis("off")
 
+    # Panel 2: SHAP Importance Heatmap
     vmax = max(np.percentile(shap_2d, 99), 1e-5)
     im_shap = axes[1].imshow(shap_2d, cmap="magma", vmin=0, vmax=vmax)
     axes[1].set_title("2. 2D SHAP Importance", fontsize=10, fontweight="bold")
     axes[1].axis("off")
     plt.colorbar(im_shap, ax=axes[1], fraction=0.046, pad=0.04)
 
+    # Panel 3: SHAP Top-K Mask
     axes[2].imshow(shap_topk_2d, cmap="Blues", vmin=0, vmax=1)
     axes[2].set_title("3. SHAP Top-K Mask", fontsize=10, fontweight="bold")
     axes[2].axis("off")
 
+    # Panel 4: GA Optimized Mask
     axes[3].imshow(ga_mask_2d, cmap="Greens", vmin=0, vmax=1)
     axes[3].set_title("4. GA Optimized Mask", fontsize=10, fontweight="bold")
     axes[3].axis("off")
 
+    # Panel 5: GA Masked MRI
     axes[4].imshow(ga_masked_2d, cmap="gray")
     axes[4].set_title("5. GA Masked MRI", fontsize=10, fontweight="bold")
     axes[4].axis("off")
 
+    # Add overall title with sample information
     plt.suptitle(
         f"2D Explanation Comparison - Sample #{sample_info.get('index', 1)} "
         f"(True: {sample_info.get('true_class', 'N/A')}, Pred: {sample_info.get('pred_class', 'N/A')}, p={sample_info.get('pred_prob', 0.0):.3f})",

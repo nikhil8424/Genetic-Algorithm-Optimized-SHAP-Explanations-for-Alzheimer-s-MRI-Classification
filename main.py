@@ -46,7 +46,16 @@ from visualization import (
 
 
 def setup_directories() -> None:
-    """Ensures all necessary output directories exist."""
+    """
+    Ensures all necessary output directories exist.
+
+    This function creates the directory structure for saving results:
+    - results/: Main results directory
+    - results/shap/: SHAP explanation visualizations
+    - results/final/: Final comparison plots
+    - results/comparisons/: Method comparison CSVs
+    - models/: Saved model files
+    """
     os.makedirs(config.RESULTS_DIR, exist_ok=True)
     os.makedirs(config.SHAP_RESULTS_DIR, exist_ok=True)
     os.makedirs(config.FINAL_RESULTS_DIR, exist_ok=True)
@@ -55,6 +64,23 @@ def setup_directories() -> None:
 
 
 def parse_args():
+    """
+    Parses command-line arguments for the pipeline.
+
+    This function defines and parses command-line arguments to customize
+    the pipeline execution without modifying the code.
+
+    Args:
+        --retrain: Force retrain the CNN model from scratch (default: load existing)
+        --epochs: Number of training epochs (default: from config)
+        --pop-size: GA population size (default: from config)
+        --generations: Number of GA generations (default: from config)
+        --eval-samples: Number of evaluation samples (default: from config)
+        --ga-seeds: List of random seeds for GA runs (default: from config)
+
+    Returns:
+        Parsed arguments namespace
+    """
     parser = argparse.ArgumentParser(description="2D GA-SHAP Alzheimer's MRI Classification Pipeline")
     parser.add_argument("--retrain", action="store_true", help="Force retrain 2D CNN model from scratch")
     parser.add_argument("--epochs", type=int, default=config.EPOCHS, help="Number of training epochs")
@@ -66,7 +92,25 @@ def parse_args():
 
 
 def save_experiment_config(args, test_size, val_size, train_size, eval_size, save_path):
-    """Saves experiment configuration to JSON."""
+    """
+    Saves experiment configuration to JSON.
+
+    This function records all experiment settings to a JSON file for
+    reproducibility and documentation. It includes:
+    - Image and grid settings
+    - Dataset split information
+    - GA hyperparameters
+    - SHAP settings
+    - Training hyperparameters
+
+    Args:
+        args: Parsed command-line arguments
+        test_size: Number of test samples
+        val_size: Number of validation samples
+        train_size: Number of training samples
+        eval_size: Number of evaluation samples
+        save_path: Path to save the JSON file
+    """
     config_dict = {
         "image_size": config.IMG_SIZE,
         "grid_size": f"{config.GRID_ROWS}x{config.GRID_COLS}",
@@ -102,8 +146,33 @@ def save_experiment_config(args, test_size, val_size, train_size, eval_size, sav
 
 
 def main():
+    """
+    Main pipeline execution function.
+
+    This function orchestrates the entire GA-SHAP pipeline for Alzheimer's MRI classification.
+    It performs the following steps:
+
+    1. Dataset Loading & Validation: Load MRI dataset, split into train/val/test
+    2. Model Training / Loading: Train CNN or load pretrained model
+    3. Model Evaluation: Evaluate model on test set with classification metrics
+    4. Select Evaluation Samples: Choose stratified subset for XAI evaluation
+    5. SHAP Explanation Setup: Compute SHAP values for evaluation samples
+    6. Multi-Seed GA Evaluation: Run genetic algorithm for each sample with multiple seeds
+    7. Aggregate Results: Compute mean ± std across samples and seeds
+    8. Save Detailed Results: Save per-sample results to CSV
+    9. Save Configuration: Record experiment settings to JSON
+    10. Create Final Summary: Generate summary CSV with key metrics
+
+    The pipeline compares three region selection methods:
+    - Random-K: Random selection (baseline)
+    - SHAP Top-K: Greedy selection based on SHAP scores
+    - GA-NSGA-II: Multi-objective genetic algorithm (proposed method)
+    """
+    # Parse command-line arguments
     args = parse_args()
+    # Create output directories
     setup_directories()
+    # Set random seeds for reproducibility
     np.random.seed(config.RANDOM_SEED)
     tf.random.set_seed(config.RANDOM_SEED)
 
@@ -111,27 +180,37 @@ def main():
     print("      2D GA-SHAP BASELINE: ALZHEIMER'S MRI CLASSIFICATION")
     print("=" * 65)
 
-    # 1. Dataset Loading & Validation
+    # =======================
+    # 1. DATASET LOADING & VALIDATION
+    # =======================
+    # Check if dataset exists, generate synthetic data if not
     if not os.path.exists(config.DATASET_DIR):
         print(f"[Notice] Dataset directory '{config.DATASET_DIR}' not found.")
         print("Synthesizing demo MRI dataset for standalone execution...")
         generate_synthetic_mri_dataset(config.DATASET_DIR, samples_per_class=30)
 
+    # Load dataset and print statistics
     df = load_dataset(config.DATASET_DIR)
     print_dataset_statistics(df)
+    # Split into train/validation/test sets (68%/16%/16%)
     train_df, val_df, test_df = split_dataset(df)
 
+    # Load images into memory as numpy arrays
     print("Loading image data arrays into memory...")
     X_train, y_train = create_data_arrays(train_df)
     X_val, y_val = create_data_arrays(val_df)
     X_test, y_test = create_data_arrays(test_df)
 
-    # 2. Model Training / Loading
+    # =======================
+    # 2. MODEL TRAINING / LOADING
+    # =======================
     model_path = config.MODEL_SAVE_PATH
+    # Load existing model if available (unless --retrain flag is set)
     if os.path.exists(model_path) and not args.retrain:
         print(f"\n[Model] Found existing pretrained model at '{model_path}'. Loading...")
         model = load_trained_model(model_path)
     else:
+        # Train new model from scratch
         print(f"\n[Model] Training 2D CNN from scratch for {args.epochs} epochs...")
         model = build_cnn(use_augmentation=True)
         history = train_model(
@@ -144,14 +223,21 @@ def main():
             batch_size=config.BATCH_SIZE,
             model_path=model_path,
         )
+        # Plot training curves (loss and accuracy over epochs)
         plot_training_history(history, save_path=os.path.join(config.RESULTS_DIR, "training_curves.png"))
 
-    # 3. Model Evaluation
+    # =======================
+    # 3. MODEL EVALUATION
+    # =======================
     print("\n[Evaluation] Evaluating model performance on test set...")
+    # Compute classification metrics (accuracy, precision, recall, F1, ROC-AUC, specificity)
     metrics = evaluate_model(model, X_test, y_test, results_dir=config.RESULTS_DIR)
 
-    # 4. Select Stratified Evaluation Samples
+    # =======================
+    # 4. SELECT STRATIFIED EVALUATION SAMPLES
+    # =======================
     print(f"\n[Sampling] Selecting {args.eval_samples} stratified evaluation samples...")
+    # Select balanced subset of test samples (50% Normal, 50% Demented)
     eval_df = select_stratified_evaluation_samples(test_df, n_samples=args.eval_samples)
 
     # Create mapping from test indices to eval indices
@@ -159,24 +245,32 @@ def main():
     X_eval = X_test[eval_indices]
     y_eval = y_test[eval_indices]
 
-    # 5. SHAP Explanation Setup
+    # =======================
+    # 5. SHAP EXPLANATION SETUP
+    # =======================
     print("\n[SHAP] Computing SHAP background and test explanations...")
+    # Select background samples for SHAP explainer (reference distribution)
     bg_size = min(config.SHAP_BACKGROUND_SIZE, len(X_train))
     bg_indices = np.random.choice(len(X_train), size=bg_size, replace=False)
     bg_data = X_train[bg_indices]
+    # Initialize SHAP explainer
     explainer = create_shap_explainer(model, bg_data)
 
+    # Compute SHAP values for all evaluation samples
     shap_start_time = time.time()
     raw_shap_batch, abs_shap_batch = compute_shap_values(explainer, X_eval)
     shap_runtime = time.time() - shap_start_time
     print(f"[SHAP] SHAP computation completed in {shap_runtime:.2f} seconds")
 
-    # 6. Multi-Seed GA Evaluation
+    # =======================
+    # 6. MULTI-SEED GA EVALUATION
+    # =======================
     print(f"\n[GA] Running GA with {len(args.ga_seeds)} seeds: {args.ga_seeds}")
     all_results = []
 
     total_xai_start_time = time.time()
 
+    # Run GA for each seed (multiple seeds for robustness)
     for seed_idx, ga_seed in enumerate(args.ga_seeds):
         print(f"\n{'='*65}")
         print(f"GA SEED {seed_idx+1}/{len(args.ga_seeds)}: {ga_seed}")
@@ -185,12 +279,14 @@ def main():
         seed_results = []
         ga_total_time = 0.0
 
+        # Process each evaluation sample
         for i, idx in enumerate(eval_indices):
             sample_num = i + 1
             img = X_eval[i]
             raw_shap = raw_shap_batch[i]
             abs_shap = abs_shap_batch[i]
 
+            # Get ground truth and prediction
             true_label = eval_df.iloc[i]["binary_class_name"]
             orig_prob = float(model.predict(np.expand_dims(img, axis=0), verbose=0)[0][0])
             pred_label = "Demented" if orig_prob >= 0.5 else "Normal"
@@ -210,14 +306,15 @@ def main():
                     save_dir=config.SHAP_RESULTS_DIR,
                 )
 
-            # Region Analysis (8x8 Grid = 64 Regions)
+            # Region Analysis: Divide SHAP map into 8x8 grid (64 regions)
             reg_scores, df_scores = calculate_region_shap_scores(abs_shap)
+            # Save region analysis visualizations (only once)
             if seed_idx == 0 and i == 0:
                 save_region_scores_csv(df_scores, os.path.join(config.RESULTS_DIR, "region_scores.csv"))
                 plot_region_grid(img, save_path=os.path.join(config.RESULTS_DIR, "spatial_grid_overlay.png"))
                 plot_region_importance(reg_scores, save_path=os.path.join(config.RESULTS_DIR, "region_importance_heatmap.png"))
 
-            # Run NSGA-II Genetic Algorithm
+            # Run NSGA-II Genetic Algorithm to optimize region selection
             ga_start_time = time.time()
             best_chrom, hist_df, ga_details, p_front = run_genetic_algorithm(
                 model=model,
@@ -238,7 +335,7 @@ def main():
                 save_pareto_front_csv(p_front, sample_idx=sample_num, save_path=os.path.join(config.RESULTS_DIR, f"pareto_front_sample_{sample_num:02d}.csv"))
                 plot_pareto_front(p_front, sample_idx=sample_num, save_path=os.path.join(config.RESULTS_DIR, f"pareto_front_sample_{sample_num:02d}.png"))
 
-            # Comparison with all baselines
+            # Compare GA with baseline methods (Random-K, SHAP Top-K)
             comp_df, details_dict = compare_all_methods(
                 model=model,
                 image=img,
@@ -250,7 +347,7 @@ def main():
                 save_path=os.path.join(config.COMPARISONS_DIR, f"comparison_seed{ga_seed}_sample{sample_num:02d}.csv"),
             )
 
-            # Generate visualization (only for first seed, first sample)
+            # Generate final comparison visualization (only for first seed, first sample)
             if seed_idx == 0 and i == 0:
                 k_selected = sum(best_chrom)
                 from comparison import create_shap_top_k_mask
@@ -274,7 +371,7 @@ def main():
                     save_path=os.path.join(config.FINAL_RESULTS_DIR, f"sample_{sample_num:02d}_final_comparison.png"),
                 )
 
-            # Record results
+            # Record results for all methods
             for method_name, method_metrics in details_dict.items():
                 seed_results.append({
                     "Sample": sample_num,
@@ -296,11 +393,13 @@ def main():
 
     total_xai_time = time.time() - total_xai_start_time
 
-    # 7. Aggregate Results
+    # =======================
+    # 7. AGGREGATE RESULTS
+    # =======================
     print("\n[Aggregation] Computing mean ± std across samples and seeds...")
     results_df = pd.DataFrame(all_results)
 
-    # Aggregate by method
+    # Aggregate by method (compute mean and std for each metric)
     metrics_to_aggregate = ["Prediction_Preservation", "SHAP_Retention", "Compactness", "Deletion_AUC", "Insertion_AUC"]
     aggregated = []
 
@@ -321,11 +420,15 @@ def main():
     agg_df.to_csv(agg_path, index=False)
     print(f"[Aggregation] Saved aggregated results to {agg_path}")
 
-    # 8. Save per-sample detailed results
+    # =======================
+    # 8. SAVE PER-SAMPLE DETAILED RESULTS
+    # =======================
     detailed_path = os.path.join(config.RESULTS_DIR, "detailed_results.csv")
     results_df.to_csv(detailed_path, index=False)
 
-    # 9. Save experiment configuration
+    # =======================
+    # 9. SAVE EXPERIMENT CONFIGURATION
+    # =======================
     config_path = os.path.join(config.RESULTS_DIR, "experiment_config.json")
     save_experiment_config(
         args,
@@ -337,7 +440,9 @@ def main():
     )
     print(f"[Config] Saved experiment configuration to {config_path}")
 
-    # 10. Create final summary
+    # =======================
+    # 10. CREATE FINAL SUMMARY
+    # =======================
     summary_path = os.path.join(config.RESULTS_DIR, "final_summary.csv")
     summary_data = {
         "Metric": [
@@ -377,6 +482,7 @@ def main():
     summary_df.to_csv(summary_path, index=False)
     print(f"[Summary] Saved final summary to {summary_path}")
 
+    # Print completion message
     print("\n" + "=" * 65)
     print("           PIPELINE EXECUTION COMPLETE!")
     print("=" * 65)
